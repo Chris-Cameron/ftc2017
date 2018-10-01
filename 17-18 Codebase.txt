@@ -1,0 +1,2208 @@
+- Autonomous -
+
+package org.firstinspires.ftc.teamcode;
+
+
+import android.app.Activity;
+import android.graphics.Color;
+import android.view.View;
+
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.Disabled;
+import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.Gyroscope;
+import com.qualcomm.robotcore.hardware.DigitalChannel;
+import com.qualcomm.robotcore.hardware.ColorSensor;
+import com.qualcomm.robotcore.hardware.DistanceSensor;
+import com.qualcomm.hardware.modernrobotics.ModernRoboticsI2cRangeSensor;
+import com.qualcomm.robotcore.hardware.TouchSensor;
+
+import com.qualcomm.robotcore.util.Range;
+import com.qualcomm.robotcore.util.ElapsedTime;
+
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+
+import java.util.Locale;
+
+import org.firstinspires.ftc.robotcore.external.ClassFactory;
+import org.firstinspires.ftc.robotcore.external.matrices.OpenGLMatrix;
+import org.firstinspires.ftc.robotcore.external.matrices.VectorF;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.AxesOrder;
+import org.firstinspires.ftc.robotcore.external.navigation.AxesReference;
+import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
+import org.firstinspires.ftc.robotcore.external.navigation.RelicRecoveryVuMark;
+import org.firstinspires.ftc.robotcore.external.navigation.VuMarkInstanceId;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaLocalizer;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackable;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackableDefaultListener;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackables;
+
+@Autonomous(name = "AutoBlue", group = "Pushbot")
+/*
+* This is a shell program for the autonomous, insert instructions for functionality
+*/
+
+
+public class AutonomousBlue extends LinearOpMode {
+    private DcMotor motorbackLeft;
+    private DcMotor motorfrontLeft;
+    private DcMotor motorfrontRight;
+    private DcMotor motorbackRight;
+    private DcMotor motorArm;
+    private ColorSensor sensorColor;
+    //private ModernRoboticsI2cRangeSensor rangeSensor;
+    private Servo leftPaddle;
+    private Servo rightPaddle;
+    private Servo colorServo;
+    
+   /* Declare OpMode members. */
+   
+   
+    //HardwarePushbot         robot   = new HardwarePushbot();   // Use a Pushbot's hardware
+    private ElapsedTime     runtime = new ElapsedTime();
+    
+    static final double     COUNTS_PER_MOTOR_REV    = 537.6 ;    // eg: Neverest 20
+    static final double     DRIVE_GEAR_REDUCTION    = 2.0 ;     // This is < 1.0 if geared UP
+    static final double     WHEEL_DIAMETER_INCHES   = 4.0 ;     // For figuring circumference
+    static final double     COUNTS_PER_INCH         = (COUNTS_PER_MOTOR_REV * DRIVE_GEAR_REDUCTION) /
+                                                      (WHEEL_DIAMETER_INCHES * 3.1415);
+    static final double     DRIVE_SPEED             = 0.6;
+    static final double     TURN_SPEED              = 0.5;
+    
+    
+
+    /**
+     * {@link #vuforia} is the variable we will use to store our instance of the Vuforia
+     * localization engine.
+     */
+    VuforiaLocalizer vuforia;
+    
+    
+    @Override
+    public void runOpMode() throws InterruptedException {
+        //robot.init(hardwareMap);
+        
+        motorfrontLeft = hardwareMap.dcMotor.get("motor_fl");
+        motorfrontRight = hardwareMap.dcMotor.get("motor_fr");
+        motorbackLeft = hardwareMap.dcMotor.get("motor_bl");
+        motorbackRight = hardwareMap.dcMotor.get("motor_br");
+        motorArm = hardwareMap.dcMotor.get("motor_a");
+        leftPaddle = hardwareMap.servo.get("servo_l");
+        rightPaddle = hardwareMap.servo.get("servo_r");
+        colorServo = hardwareMap.servo.get("servo_c");
+        sensorColor = hardwareMap.get(ColorSensor.class, "sensor_color_distance");
+        //rangeSensor = hardwareMap.get(ModernRoboticsI2cRangeSensor.class, "sensor_range");
+
+        // Send telemetry message to signify robot waiting;
+        telemetry.addData("Status", "Resetting Encoders");    //
+        telemetry.update();
+
+        motorfrontLeft.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        motorfrontRight.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        motorbackLeft.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        motorbackRight.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+    
+        motorfrontLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        motorfrontRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        motorbackLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        motorbackRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+
+        // Send telemetry message to indicate successful Encoder reset
+        telemetry.addData("Path0",  "Starting at %7d :%7d",
+                          motorfrontLeft.getCurrentPosition(),
+                          motorfrontRight.getCurrentPosition(),
+                          motorbackLeft.getCurrentPosition(),
+                          motorbackRight.getCurrentPosition());
+        telemetry.update();
+
+
+        
+        // hsvValues is an array that will hold the hue, saturation, and value information.
+        float hsvValues[] = {0F, 0F, 0F};
+
+        // values is a reference to the hsvValues array.
+        final float values[] = hsvValues;
+
+        // sometimes it helps to multiply the raw RGB values with a scale factor
+        // to amplify/attentuate the measured values.
+        final double SCALE_FACTOR = 255;
+
+
+
+        // loop and read the RGB and distance data.
+        // Note we use opModeIsActive() as our loop condition because it is an interruptible method.
+        waitForStart();
+        while (opModeIsActive()) {
+            // convert the RGB values to HSV values.
+            // multiply by the SCALE_FACTOR.
+            // then cast it back to int (SCALE_FACTOR is a double)
+            Color.RGBToHSV((int) (sensorColor.red() * SCALE_FACTOR),
+                    (int) (sensorColor.green() * SCALE_FACTOR),
+                    (int) (sensorColor.blue() * SCALE_FACTOR),
+                    hsvValues);
+                    
+            // send the info back to driver station using telemetry function
+            // these are all potential telmetry values, to be limited upon final implemenetation
+            telemetry.addData("Alpha", sensorColor.alpha());
+            telemetry.addData("Red  ", sensorColor.red());
+            telemetry.addData("Green", sensorColor.green());
+            telemetry.addData("Blue ", sensorColor.blue());
+            telemetry.addData("Hue", hsvValues[0]);
+            //telemetry.addData("raw ultrasonic", rangeSensor.rawUltrasonic());
+            //telemetry.addData("raw optical", rangeSensor.rawOptical());
+           // telemetry.addData("cm", "%.2f cm", rangeSensor.getDistance(DistanceUnit.CM));
+            
+            //Determines the color seen by the robot. 
+            if(isRed(hsvValues[0]))
+            {
+                telemetry.addData("Color","Red");
+            }
+            else
+            {
+                telemetry.addData("Color","Blue");
+            }
+            
+
+          
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+
+//DO CODE HERE:
+clamp();
+setColorSensor();
+if(isRed(hsvValues[0])){
+    counter(.3,1);
+    resetColorSensor();
+    clock(.3,1);
+}else{
+    clock(.3,1);
+    resetColorSensor();
+    counter(.3,1);
+}
+    back(.3,14.0);
+    clock(.3,6);
+    front(.3, 6);
+    unClamp();
+    stahp();
+
+
+
+
+
+
+
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+
+            telemetry.update();
+        }
+
+  
+       
+        
+        
+    
+    
+    }
+    public boolean isRed(float hue)
+    {
+       /* if(hue < 90 || hue > 270)
+        {
+            telemetry.addData("color", hue);
+            telemetry.update();
+            sleep(1000);
+            return true;
+        }
+        telemetry.addData("color", hue);
+        telemetry.update();
+        sleep(1000);
+        return false;*/
+        
+        telemetry.addData("red",sensorColor.red());
+        telemetry.addData("blue",sensorColor.blue());
+        if(sensorColor.red()>sensorColor.blue())
+        {
+            return true;
+        }
+        return false;
+    }
+    
+    public int vuforia()
+    {
+        OpenGLMatrix lastLocation = null;
+
+        /*
+         * To start up Vuforia, tell it the view that we wish to use for camera monitor (on the RC phone);
+         * If no camera monitor is desired, use the parameterless constructor instead (commented out below).
+         */
+        int cameraMonitorViewId = hardwareMap.appContext.getResources().getIdentifier("cameraMonitorViewId", "id", hardwareMap.appContext.getPackageName());
+        VuforiaLocalizer.Parameters parameters = new VuforiaLocalizer.Parameters(cameraMonitorViewId);
+
+        // OR...  Do Not Activate the Camera Monitor View, to save power
+        // VuforiaLocalizer.Parameters parameters = new VuforiaLocalizer.Parameters();
+
+        /*
+         * IMPORTANT: You need to obtain your own license key to use Vuforia. The string below with which
+         * 'parameters.vuforiaLicenseKey' is initialized is for illustration only, and will not function.
+         * A Vuforia 'Development' license key, can be obtained free of charge from the Vuforia developer
+         * web site at https://developer.vuforia.com/license-manager.
+         *
+         * Vuforia license keys are always 380 characters long, and look as if they contain mostly
+         * random data. As an example, here is a example of a fragment of a valid key:
+         *      ... yIgIzTqZ4mWjk9wd3cZO9T1axEqzuhxoGlfOOI2dRzKS4T0hQ8kT ...
+         * Once you've obtained a license key, copy the string from the Vuforia web site
+         * and paste it in to your code onthe next line, between the double quotes.
+         */
+        parameters.vuforiaLicenseKey = "AYmumr7/////AAAAGQ1uPJyxHEuKsdtKEoEYh3EcTg8yuw5Yo19dWdiDeT1573I36y48gRmf5tjl+VvKo5buvq+KZNlRAMKpDduiDSUDDimtzeI86rdHp0aPahXrMR9CoqiMwNJbff0fbXhPnSYqdWwAx0lg2fPNCdcgkoWaJe/BHMcjDgoWYPoBwCPZMLbD+Milz1ztlUL1pxvx+zxHnZChwe1ffDeXM7BJgo15Es03Q0ZNmUFLegwhyONUZjEXl4AtmOtTe79IyKxp3jGYpaEpIKuh5mhXYy3ach4+nZ3RhLj5eOFV0RnPtWnCbzswxwknzAS3yobuKIH5wSUzDuqizY/BMMXSkP0OU/Bqzo2H0YEtoY9U/Csqs7w6";
+
+        /*
+         * We also indicate which camera on the RC that we wish to use.
+         * Here we chose the back (HiRes) camera (for greater range), but
+         * for a competition robot, the front camera might be more convenient.
+         */
+        parameters.cameraDirection = VuforiaLocalizer.CameraDirection.BACK;
+        this.vuforia = ClassFactory.createVuforiaLocalizer(parameters);
+
+        /**
+         * Load the data set containing the VuMarks for Relic Recovery. There's only one trackable
+         * in this data set: all three of the VuMarks in the game were created from this one template,
+         * but differ in their instance id information.
+         * @see VuMarkInstanceId
+         */
+        VuforiaTrackables relicTrackables = this.vuforia.loadTrackablesFromAsset("RelicVuMark");
+        VuforiaTrackable relicTemplate = relicTrackables.get(0);
+        relicTemplate.setName("relicVuMarkTemplate"); // can help in debugging; otherwise not necessary
+
+        telemetry.addData(">", "Press Play to start");
+        telemetry.update();
+        waitForStart();
+
+        relicTrackables.activate();
+
+        while (opModeIsActive()) {
+
+            /**
+             * See if any of the instances of {@link relicTemplate} are currently visible.
+             * {@link RelicRecoveryVuMark} is an enum which can have the following values:
+             * UNKNOWN, LEFT, CENTER, and RIGHT. When a VuMark is visible, something other than
+             * UNKNOWN will be returned by {@link RelicRecoveryVuMark#from(VuforiaTrackable)}.
+             */
+            RelicRecoveryVuMark vuMark = RelicRecoveryVuMark.from(relicTemplate);
+            if (vuMark != RelicRecoveryVuMark.UNKNOWN) {
+
+                /* Found an instance of the template. In the actual game, you will probably
+                 * loop until this condition occurs, then move on to act accordingly depending
+                 * on which VuMark was visible. */
+                telemetry.addData("VuMark", "%s visible", vuMark);
+
+                /* For fun, we also exhibit the navigational pose. In the Relic Recovery game,
+                 * it is perhaps unlikely that you will actually need to act on this pose information, but
+                 * we illustrate it nevertheless, for completeness. */
+                 
+                 
+                 
+                 
+                /*OpenGLMatrix pose = ((VuforiaTrackableDefaultListener)relicTemplate.getListener()).getPose();
+                telemetry.addData("Pose", format(pose));
+
+                /* We further illustrate how to decompose the pose into useful rotational and
+                 * translational components/*
+                if (pose != null) {
+                    VectorF trans = pose.getTranslation();
+                    Orientation rot = Orientation.getOrientation(pose, AxesReference.EXTRINSIC, AxesOrder.XYZ, AngleUnit.DEGREES);
+
+                    // Extract the X, Y, and Z components of the offset of the target relative to the robot
+                    double tX = trans.get(0);
+                    double tY = trans.get(1);
+                    double tZ = trans.get(2);
+
+                    // Extract the rotational components of the target relative to the robot
+                    double rX = rot.firstAngle;
+                    double rY = rot.secondAngle;
+                    double rZ = rot.thirdAngle;
+                }
+            }
+            else {
+                telemetry.addData("VuMark", "not visible");
+            }*/
+
+            telemetry.update();
+            
+            if(vuMark==RelicRecoveryVuMark.LEFT)
+            {
+                return 0;
+            }
+            else if(vuMark==RelicRecoveryVuMark.CENTER)
+            {
+                return 1;
+            } 
+            else if(vuMark==RelicRecoveryVuMark.RIGHT)
+            {
+                return 2;
+            }
+        }
+        
+    }
+       return -1; 
+    }
+  
+   
+    public void clamp()
+    {
+        leftPaddle.setPosition(1);
+        rightPaddle.setPosition(0);
+        sleep(1000);
+        motorArm.setPower(1);
+        sleep(1000);
+        motorArm.setPower(0);
+    }
+    
+        public void unClamp()
+    {
+        leftPaddle.setPosition(0);
+        rightPaddle.setPosition(1);
+        
+        //motorArm.setPower(-1);
+        //sleep(1000);
+        motorArm.setPower(0);
+    }
+    
+    
+    public void front(double speed, double distance)
+    {
+        encoderDrive(speed, 1, 1, -1, -1, distance);
+        telemetry.addData("going forward", "");
+    }
+
+        public void left(double speed, double distance)
+    {
+        encoderDrive(speed, 1, -1, 1, -1, distance);
+        telemetry.addData("going left", "");
+    }
+
+        public void back(double speed, double distance)
+    {
+        encoderDrive(speed, -1, -1, 1, 1, distance);
+        telemetry.addData("going backward", "");
+    }
+
+        public void right(double speed, double distance)
+    {
+        encoderDrive(speed, -1, 1, -1, 1, distance);
+        telemetry.addData("going right", "");
+    }
+    
+        public void clock(double speed, double distance)
+    {
+        encoderDrive(speed, 1, 1, 1, 1, distance);
+    }
+    
+        public void counter(double speed, double distance)
+    {
+        encoderDrive(speed, -1, -1, -1, -1, distance);
+    }
+    
+    public void setColorSensor()
+    {
+        
+        colorServo.setPosition(.4);
+        sleep(1000);
+    }
+    
+    public void resetColorSensor()
+    {
+        colorServo.setPosition(1);
+        sleep(1000);
+    }
+    
+    
+    public void stahp()
+    {
+            motorfrontLeft.setPower(0);
+            motorfrontRight.setPower(0);
+            motorbackLeft.setPower(0);
+            motorbackRight.setPower(0);
+            sleep(999999);
+    }
+    
+    
+   
+
+//This code sets the next action that is to be taken by the encoder
+    private void encoderDrive(double speed,
+                             double fL, double fR, double bL, double bR, 
+                             double distance) {
+        int fLTarget;
+        int fRTarget;
+        int bLTarget;
+        int bRTarget;
+        double timeoutS = 3;
+
+        // Ensure that the opmode is still active
+       if (opModeIsActive()) {
+
+            // Determine new target position, and pass to motor controller
+            fLTarget = motorfrontLeft.getCurrentPosition() + (int)(fL * distance * COUNTS_PER_INCH);
+            fRTarget = motorfrontRight.getCurrentPosition() + (int)(fR * distance * COUNTS_PER_INCH);
+            bLTarget = motorbackLeft.getCurrentPosition() + (int)(bL * distance * COUNTS_PER_INCH);
+            bRTarget = motorbackRight.getCurrentPosition() + (int)(bR * distance * COUNTS_PER_INCH); 
+            motorfrontLeft.setTargetPosition(fLTarget);
+            motorfrontRight.setTargetPosition(fRTarget);
+            motorbackLeft.setTargetPosition(bLTarget);
+            motorbackRight.setTargetPosition(bRTarget);
+            
+            // Turn On RUN_TO_POSITION
+            motorfrontLeft.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            motorfrontRight.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            motorbackLeft.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            motorbackRight.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            
+            // reset the timeout time and start motion.
+            runtime.reset();
+            motorfrontLeft.setPower(speed);
+            motorfrontRight.setPower(speed);
+            motorbackLeft.setPower(speed);
+            motorbackRight.setPower(speed);
+
+            // keep looping while we are still active, and there is time left, and both motors are running.
+            // Note: We use (isBusy() && isBusy()) in the loop test, which means that when EITHER motor hits
+            // its target position, the motion will stop.  This is "safer" in the event that the robot will
+            // always end the motion as soon as possible.
+            // However, if you require that BOTH motors have finished their moves before the robot continues
+            // onto the next step, use (isBusy() || isBusy()) in the loop test.
+            while (opModeIsActive() &&
+                   (runtime.seconds() < timeoutS) &&
+                   (motorfrontLeft.isBusy() && motorfrontRight.isBusy()
+                   && motorbackLeft.isBusy() && motorbackRight.isBusy())) {
+
+                // Display it for the driver.
+                telemetry.addData("Path1",  "Running to %7d :%7d", fLTarget,  fRTarget, bLTarget, bRTarget);
+                telemetry.addData("Path2",  "Running at %7d :%7d",
+                                            motorfrontLeft.getCurrentPosition(),
+                                            motorfrontRight.getCurrentPosition(),
+                                            motorbackLeft.getCurrentPosition(),
+                                            motorbackRight.getCurrentPosition());
+                telemetry.update();
+            }
+
+            // Stop all motion;
+            motorfrontLeft.setPower(0);
+            motorfrontRight.setPower(0);
+            motorbackLeft.setPower(0);
+            motorbackRight.setPower(0);
+
+            // Turn off RUN_TO_POSITION
+            motorfrontLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            motorfrontRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            motorbackLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            motorbackRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            
+            
+
+            //  sleep(250);   // optional pause after each move
+        }
+    }
+}
+
+
+
+- Autonomous Side-
+
+package org.firstinspires.ftc.teamcode;
+
+
+import android.app.Activity;
+import android.graphics.Color;
+import android.view.View;
+
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.Disabled;
+import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.Gyroscope;
+import com.qualcomm.robotcore.hardware.DigitalChannel;
+import com.qualcomm.robotcore.hardware.ColorSensor;
+import com.qualcomm.robotcore.hardware.DistanceSensor;
+import com.qualcomm.hardware.modernrobotics.ModernRoboticsI2cRangeSensor;
+import com.qualcomm.robotcore.hardware.TouchSensor;
+
+import com.qualcomm.robotcore.util.Range;
+import com.qualcomm.robotcore.util.ElapsedTime;
+
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+
+import java.util.Locale;
+
+import org.firstinspires.ftc.robotcore.external.ClassFactory;
+import org.firstinspires.ftc.robotcore.external.matrices.OpenGLMatrix;
+import org.firstinspires.ftc.robotcore.external.matrices.VectorF;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.AxesOrder;
+import org.firstinspires.ftc.robotcore.external.navigation.AxesReference;
+import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
+import org.firstinspires.ftc.robotcore.external.navigation.RelicRecoveryVuMark;
+import org.firstinspires.ftc.robotcore.external.navigation.VuMarkInstanceId;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaLocalizer;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackable;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackableDefaultListener;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackables;
+
+@Autonomous(name = "AutoBlueSide", group = "Pushbot")
+/*
+* This is a shell program for the autonomous, insert instructions for functionality
+*/
+
+
+public class AutonomousBlueSide extends LinearOpMode {
+    private DcMotor motorbackLeft;
+    private DcMotor motorfrontLeft;
+    private DcMotor motorfrontRight;
+    private DcMotor motorbackRight;
+    private DcMotor motorArm;
+    private ColorSensor sensorColor;
+    //private ModernRoboticsI2cRangeSensor rangeSensor;
+    private Servo leftPaddle;
+    private Servo rightPaddle;
+    private Servo colorServo;
+    
+   /* Declare OpMode members. */
+   
+   
+    //HardwarePushbot         robot   = new HardwarePushbot();   // Use a Pushbot's hardware
+    private ElapsedTime     runtime = new ElapsedTime();
+    
+    static final double     COUNTS_PER_MOTOR_REV    = 537.6 ;    // eg: Neverest 20
+    static final double     DRIVE_GEAR_REDUCTION    = 2.0 ;     // This is < 1.0 if geared UP
+    static final double     WHEEL_DIAMETER_INCHES   = 4.0 ;     // For figuring circumference
+    static final double     COUNTS_PER_INCH         = (COUNTS_PER_MOTOR_REV * DRIVE_GEAR_REDUCTION) /
+                                                      (WHEEL_DIAMETER_INCHES * 3.1415);
+    static final double     DRIVE_SPEED             = 0.6;
+    static final double     TURN_SPEED              = 0.5;
+    
+    
+
+    /**
+     * {@link #vuforia} is the variable we will use to store our instance of the Vuforia
+     * localization engine.
+     */
+    VuforiaLocalizer vuforia;
+    
+    
+    @Override
+    public void runOpMode() throws InterruptedException {
+        //robot.init(hardwareMap);
+        
+        motorfrontLeft = hardwareMap.dcMotor.get("motor_fl");
+        motorfrontRight = hardwareMap.dcMotor.get("motor_fr");
+        motorbackLeft = hardwareMap.dcMotor.get("motor_bl");
+        motorbackRight = hardwareMap.dcMotor.get("motor_br");
+        motorArm = hardwareMap.dcMotor.get("motor_a");
+        leftPaddle = hardwareMap.servo.get("servo_l");
+        rightPaddle = hardwareMap.servo.get("servo_r");
+        colorServo = hardwareMap.servo.get("servo_c");
+        sensorColor = hardwareMap.get(ColorSensor.class, "sensor_color_distance");
+        //rangeSensor = hardwareMap.get(ModernRoboticsI2cRangeSensor.class, "sensor_range");
+
+        // Send telemetry message to signify robot waiting;
+        telemetry.addData("Status", "Resetting Encoders");    //
+        telemetry.update();
+
+        motorfrontLeft.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        motorfrontRight.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        motorbackLeft.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        motorbackRight.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+    
+        motorfrontLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        motorfrontRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        motorbackLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        motorbackRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+
+        // Send telemetry message to indicate successful Encoder reset
+        telemetry.addData("Path0",  "Starting at %7d :%7d",
+                          motorfrontLeft.getCurrentPosition(),
+                          motorfrontRight.getCurrentPosition(),
+                          motorbackLeft.getCurrentPosition(),
+                          motorbackRight.getCurrentPosition());
+        telemetry.update();
+
+
+        
+        // hsvValues is an array that will hold the hue, saturation, and value information.
+        float hsvValues[] = {0F, 0F, 0F};
+
+        // values is a reference to the hsvValues array.
+        final float values[] = hsvValues;
+
+        // sometimes it helps to multiply the raw RGB values with a scale factor
+        // to amplify/attentuate the measured values.
+        final double SCALE_FACTOR = 255;
+
+
+
+        // loop and read the RGB and distance data.
+        // Note we use opModeIsActive() as our loop condition because it is an interruptible method.
+        waitForStart();
+        while (opModeIsActive()) {
+            // convert the RGB values to HSV values.
+            // multiply by the SCALE_FACTOR.
+            // then cast it back to int (SCALE_FACTOR is a double)
+            Color.RGBToHSV((int) (sensorColor.red() * SCALE_FACTOR),
+                    (int) (sensorColor.green() * SCALE_FACTOR),
+                    (int) (sensorColor.blue() * SCALE_FACTOR),
+                    hsvValues);
+                    
+            // send the info back to driver station using telemetry function
+            // these are all potential telmetry values, to be limited upon final implemenetation
+            telemetry.addData("Alpha", sensorColor.alpha());
+            telemetry.addData("Red  ", sensorColor.red());
+            telemetry.addData("Green", sensorColor.green());
+            telemetry.addData("Blue ", sensorColor.blue());
+            telemetry.addData("Hue", hsvValues[0]);
+            //telemetry.addData("raw ultrasonic", rangeSensor.rawUltrasonic());
+            //telemetry.addData("raw optical", rangeSensor.rawOptical());
+           // telemetry.addData("cm", "%.2f cm", rangeSensor.getDistance(DistanceUnit.CM));
+            
+            //Determines the color seen by the robot. 
+            if(isRed(hsvValues[0]))
+            {
+                telemetry.addData("Color","Red");
+            }
+            else
+            {
+                telemetry.addData("Color","Blue");
+            }
+            
+
+          
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+
+//DO CODE HERE:
+clamp();
+setColorSensor();
+if(isRed(hsvValues[0])){
+    counter(.3,1);
+    resetColorSensor();
+    clock(.3,1);
+}else{
+    clock(.3,1);
+    resetColorSensor();
+    counter(.3,1);
+}
+    left(.3,14.4);
+    back(.3, 9.6);
+    right (.3, 9.6);
+    clock (.3, 12);
+    front(.3, 6);
+    unClamp();
+    stahp();
+
+
+
+
+
+
+
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+
+            telemetry.update();
+        }
+
+  
+       
+        
+        
+    
+    
+    }
+    public boolean isRed(float hue)
+    {
+       /* if(hue < 90 || hue > 270)
+        {
+            telemetry.addData("color", hue);
+            telemetry.update();
+            sleep(1000);
+            return true;
+        }
+        telemetry.addData("color", hue);
+        telemetry.update();
+        sleep(1000);
+        return false;*/
+        
+        telemetry.addData("red",sensorColor.red());
+        telemetry.addData("blue",sensorColor.blue());
+        if(sensorColor.red()>sensorColor.blue())
+        {
+            return true;
+        }
+        return false;
+    }
+    
+    public int vuforia()
+    {
+        OpenGLMatrix lastLocation = null;
+
+        /*
+         * To start up Vuforia, tell it the view that we wish to use for camera monitor (on the RC phone);
+         * If no camera monitor is desired, use the parameterless constructor instead (commented out below).
+         */
+        int cameraMonitorViewId = hardwareMap.appContext.getResources().getIdentifier("cameraMonitorViewId", "id", hardwareMap.appContext.getPackageName());
+        VuforiaLocalizer.Parameters parameters = new VuforiaLocalizer.Parameters(cameraMonitorViewId);
+
+        // OR...  Do Not Activate the Camera Monitor View, to save power
+        // VuforiaLocalizer.Parameters parameters = new VuforiaLocalizer.Parameters();
+
+        /*
+         * IMPORTANT: You need to obtain your own license key to use Vuforia. The string below with which
+         * 'parameters.vuforiaLicenseKey' is initialized is for illustration only, and will not function.
+         * A Vuforia 'Development' license key, can be obtained free of charge from the Vuforia developer
+         * web site at https://developer.vuforia.com/license-manager.
+         *
+         * Vuforia license keys are always 380 characters long, and look as if they contain mostly
+         * random data. As an example, here is a example of a fragment of a valid key:
+         *      ... yIgIzTqZ4mWjk9wd3cZO9T1axEqzuhxoGlfOOI2dRzKS4T0hQ8kT ...
+         * Once you've obtained a license key, copy the string from the Vuforia web site
+         * and paste it in to your code onthe next line, between the double quotes.
+         */
+        parameters.vuforiaLicenseKey = "AYmumr7/////AAAAGQ1uPJyxHEuKsdtKEoEYh3EcTg8yuw5Yo19dWdiDeT1573I36y48gRmf5tjl+VvKo5buvq+KZNlRAMKpDduiDSUDDimtzeI86rdHp0aPahXrMR9CoqiMwNJbff0fbXhPnSYqdWwAx0lg2fPNCdcgkoWaJe/BHMcjDgoWYPoBwCPZMLbD+Milz1ztlUL1pxvx+zxHnZChwe1ffDeXM7BJgo15Es03Q0ZNmUFLegwhyONUZjEXl4AtmOtTe79IyKxp3jGYpaEpIKuh5mhXYy3ach4+nZ3RhLj5eOFV0RnPtWnCbzswxwknzAS3yobuKIH5wSUzDuqizY/BMMXSkP0OU/Bqzo2H0YEtoY9U/Csqs7w6";
+
+        /*
+         * We also indicate which camera on the RC that we wish to use.
+         * Here we chose the back (HiRes) camera (for greater range), but
+         * for a competition robot, the front camera might be more convenient.
+         */
+        parameters.cameraDirection = VuforiaLocalizer.CameraDirection.BACK;
+        this.vuforia = ClassFactory.createVuforiaLocalizer(parameters);
+
+        /**
+         * Load the data set containing the VuMarks for Relic Recovery. There's only one trackable
+         * in this data set: all three of the VuMarks in the game were created from this one template,
+         * but differ in their instance id information.
+         * @see VuMarkInstanceId
+         */
+        VuforiaTrackables relicTrackables = this.vuforia.loadTrackablesFromAsset("RelicVuMark");
+        VuforiaTrackable relicTemplate = relicTrackables.get(0);
+        relicTemplate.setName("relicVuMarkTemplate"); // can help in debugging; otherwise not necessary
+
+        telemetry.addData(">", "Press Play to start");
+        telemetry.update();
+        waitForStart();
+
+        relicTrackables.activate();
+
+        while (opModeIsActive()) {
+
+            /**
+             * See if any of the instances of {@link relicTemplate} are currently visible.
+             * {@link RelicRecoveryVuMark} is an enum which can have the following values:
+             * UNKNOWN, LEFT, CENTER, and RIGHT. When a VuMark is visible, something other than
+             * UNKNOWN will be returned by {@link RelicRecoveryVuMark#from(VuforiaTrackable)}.
+             */
+            RelicRecoveryVuMark vuMark = RelicRecoveryVuMark.from(relicTemplate);
+            if (vuMark != RelicRecoveryVuMark.UNKNOWN) {
+
+                /* Found an instance of the template. In the actual game, you will probably
+                 * loop until this condition occurs, then move on to act accordingly depending
+                 * on which VuMark was visible. */
+                telemetry.addData("VuMark", "%s visible", vuMark);
+
+                /* For fun, we also exhibit the navigational pose. In the Relic Recovery game,
+                 * it is perhaps unlikely that you will actually need to act on this pose information, but
+                 * we illustrate it nevertheless, for completeness. */
+                 
+                 
+                 
+                 
+                /*OpenGLMatrix pose = ((VuforiaTrackableDefaultListener)relicTemplate.getListener()).getPose();
+                telemetry.addData("Pose", format(pose));
+
+                /* We further illustrate how to decompose the pose into useful rotational and
+                 * translational components/*
+                if (pose != null) {
+                    VectorF trans = pose.getTranslation();
+                    Orientation rot = Orientation.getOrientation(pose, AxesReference.EXTRINSIC, AxesOrder.XYZ, AngleUnit.DEGREES);
+
+                    // Extract the X, Y, and Z components of the offset of the target relative to the robot
+                    double tX = trans.get(0);
+                    double tY = trans.get(1);
+                    double tZ = trans.get(2);
+
+                    // Extract the rotational components of the target relative to the robot
+                    double rX = rot.firstAngle;
+                    double rY = rot.secondAngle;
+                    double rZ = rot.thirdAngle;
+                }
+            }
+            else {
+                telemetry.addData("VuMark", "not visible");
+            }*/
+
+            telemetry.update();
+            
+            if(vuMark==RelicRecoveryVuMark.LEFT)
+            {
+                return 0;
+            }
+            else if(vuMark==RelicRecoveryVuMark.CENTER)
+            {
+                return 1;
+            } 
+            else if(vuMark==RelicRecoveryVuMark.RIGHT)
+            {
+                return 2;
+            }
+        }
+        
+    }
+       return -1; 
+    }
+  
+   
+    public void clamp()
+    {
+        leftPaddle.setPosition(1);
+        rightPaddle.setPosition(0);
+        sleep(1000);
+        motorArm.setPower(1);
+        sleep(1000);
+        motorArm.setPower(0);
+    }
+    
+        public void unClamp()
+    {
+        leftPaddle.setPosition(0);
+        rightPaddle.setPosition(1);
+        
+        //motorArm.setPower(-1);
+        //sleep(1000);
+        motorArm.setPower(0);
+    }
+    
+    
+    public void front(double speed, double distance)
+    {
+        encoderDrive(speed, 1, 1, -1, -1, distance);
+        telemetry.addData("going forward", "");
+    }
+
+        public void left(double speed, double distance)
+    {
+        encoderDrive(speed, 1, -1, 1, -1, distance);
+        telemetry.addData("going left", "");
+    }
+
+        public void back(double speed, double distance)
+    {
+        encoderDrive(speed, -1, -1, 1, 1, distance);
+        telemetry.addData("going backward", "");
+    }
+
+        public void right(double speed, double distance)
+    {
+        encoderDrive(speed, -1, 1, -1, 1, distance);
+        telemetry.addData("going right", "");
+    }
+    
+        public void clock(double speed, double distance)
+    {
+        encoderDrive(speed, 1, 1, 1, 1, distance);
+    }
+    
+        public void counter(double speed, double distance)
+    {
+        encoderDrive(speed, -1, -1, -1, -1, distance);
+    }
+    
+    public void setColorSensor()
+    {
+        
+        colorServo.setPosition(.4);
+        sleep(1000);
+    }
+    
+    public void resetColorSensor()
+    {
+        colorServo.setPosition(1);
+        sleep(1000);
+    }
+    
+    
+    public void stahp()
+    {
+            motorfrontLeft.setPower(0);
+            motorfrontRight.setPower(0);
+            motorbackLeft.setPower(0);
+            motorbackRight.setPower(0);
+            sleep(999999);
+    }
+    
+    
+   
+
+//This code sets the next action that is to be taken by the encoder
+    private void encoderDrive(double speed,
+                             double fL, double fR, double bL, double bR, 
+                             double distance) {
+        int fLTarget;
+        int fRTarget;
+        int bLTarget;
+        int bRTarget;
+        double timeoutS = 3;
+
+        // Ensure that the opmode is still active
+       if (opModeIsActive()) {
+
+            // Determine new target position, and pass to motor controller
+            fLTarget = motorfrontLeft.getCurrentPosition() + (int)(fL * distance * COUNTS_PER_INCH);
+            fRTarget = motorfrontRight.getCurrentPosition() + (int)(fR * distance * COUNTS_PER_INCH);
+            bLTarget = motorbackLeft.getCurrentPosition() + (int)(bL * distance * COUNTS_PER_INCH);
+            bRTarget = motorbackRight.getCurrentPosition() + (int)(bR * distance * COUNTS_PER_INCH); 
+            motorfrontLeft.setTargetPosition(fLTarget);
+            motorfrontRight.setTargetPosition(fRTarget);
+            motorbackLeft.setTargetPosition(bLTarget);
+            motorbackRight.setTargetPosition(bRTarget);
+            
+            // Turn On RUN_TO_POSITION
+            motorfrontLeft.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            motorfrontRight.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            motorbackLeft.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            motorbackRight.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            
+            // reset the timeout time and start motion.
+            runtime.reset();
+            motorfrontLeft.setPower(speed);
+            motorfrontRight.setPower(speed);
+            motorbackLeft.setPower(speed);
+            motorbackRight.setPower(speed);
+
+            // keep looping while we are still active, and there is time left, and both motors are running.
+            // Note: We use (isBusy() && isBusy()) in the loop test, which means that when EITHER motor hits
+            // its target position, the motion will stop.  This is "safer" in the event that the robot will
+            // always end the motion as soon as possible.
+            // However, if you require that BOTH motors have finished their moves before the robot continues
+            // onto the next step, use (isBusy() || isBusy()) in the loop test.
+            while (opModeIsActive() &&
+                   (runtime.seconds() < timeoutS) &&
+                   (motorfrontLeft.isBusy() && motorfrontRight.isBusy()
+                   && motorbackLeft.isBusy() && motorbackRight.isBusy())) {
+
+                // Display it for the driver.
+                telemetry.addData("Path1",  "Running to %7d :%7d", fLTarget,  fRTarget, bLTarget, bRTarget);
+                telemetry.addData("Path2",  "Running at %7d :%7d",
+                                            motorfrontLeft.getCurrentPosition(),
+                                            motorfrontRight.getCurrentPosition(),
+                                            motorbackLeft.getCurrentPosition(),
+                                            motorbackRight.getCurrentPosition());
+                telemetry.update();
+            }
+
+            // Stop all motion;
+            motorfrontLeft.setPower(0);
+            motorfrontRight.setPower(0);
+            motorbackLeft.setPower(0);
+            motorbackRight.setPower(0);
+
+            // Turn off RUN_TO_POSITION
+            motorfrontLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            motorfrontRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            motorbackLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            motorbackRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            
+            
+
+            //  sleep(250);   // optional pause after each move
+        }
+    }
+}
+
+
+
+-Color Detection-
+
+/* Copyright (c) 2017 FIRST. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted (subject to the limitations in the disclaimer below) provided that
+ * the following conditions are met:
+ *
+ * Redistributions of source code must retain the above copyright notice, this list
+ * of conditions and the following disclaimer.
+ *
+ * Redistributions in binary form must reproduce the above copyright notice, this
+ * list of conditions and the following disclaimer in the documentation and/or
+ * other materials provided with the distribution.
+ *
+ * Neither the name of FIRST nor the names of its contributors may be used to endorse or
+ * promote products derived from this software without specific prior written permission.
+ *
+ * NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE GRANTED BY THIS
+ * LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+package org.firstinspires.ftc.teamcode;
+
+import android.app.Activity;
+import android.graphics.Color;
+import android.view.View;
+
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.Disabled;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.ColorSensor;
+import com.qualcomm.robotcore.hardware.DistanceSensor;
+
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+
+import java.util.Locale;
+
+/*
+ * This is an example LinearOpMode that shows how to use
+ * the REV Robotics Color-Distance Sensor.
+ *
+ * It assumes the sensor is configured with the name "sensor_color_distance".
+ *
+ * Use Android Studio to Copy this Class, and Paste it into your team's code folder with a new name.
+ * Remove or comment out the @Disabled line to add this opmode to the Driver Station OpMode list.
+ */
+@Autonomous(name = "Sensor: REVColorDistance", group = "Sensor")
+
+public class ColorDetectionTest extends LinearOpMode {
+
+    /**
+     * Note that the REV Robotics Color-Distance incorporates two sensors into one device.
+     * It has a light/distance (range) sensor.  It also has an RGB color sensor.
+     * The light/distance sensor saturates at around 2" (5cm).  This means that targets that are 2"
+     * or closer will display the same value for distance/light detected.
+     *
+     * Although you configure a single REV Robotics Color-Distance sensor in your configuration file,
+     * you can treat the sensor as two separate sensors that share the same name in your op mode.
+     *
+     * In this example, we represent the detected color by a hue, saturation, and value color
+     * model (see https://en.wikipedia.org/wiki/HSL_and_HSV).  We change the background
+     * color of the screen to match the detected color.
+     *
+     * In this example, we  also use the distance sensor to display the distance
+     * to the target object.  Note that the distance sensor saturates at around 2" (5 cm).
+     *
+     */
+    ColorSensor sensorColor;
+    DistanceSensor sensorDistance;
+
+    @Override
+    public void runOpMode() {
+
+        // get a reference to the color sensor.
+        sensorColor = hardwareMap.get(ColorSensor.class, "sensor_color_distance");
+
+        // get a reference to the distance sensor that shares the same name.
+        sensorDistance = hardwareMap.get(DistanceSensor.class, "sensor_color_distance");
+
+        // hsvValues is an array that will hold the hue, saturation, and value information.
+        float hsvValues[] = {0F, 0F, 0F};
+
+        // values is a reference to the hsvValues array.
+        final float values[] = hsvValues;
+
+        // sometimes it helps to multiply the raw RGB values with a scale factor
+        // to amplify/attentuate the measured values.
+        final double SCALE_FACTOR = 255;
+
+        // get a reference to the RelativeLayout so we can change the background
+        // color of the Robot Controller app to match the hue detected by the RGB sensor.
+        int relativeLayoutId = hardwareMap.appContext.getResources().getIdentifier("RelativeLayout", "id", hardwareMap.appContext.getPackageName());
+        final View relativeLayout = ((Activity) hardwareMap.appContext).findViewById(relativeLayoutId);
+
+        // wait for the start button to be pressed.
+        waitForStart();
+
+        // loop and read the RGB and distance data.
+        // Note we use opModeIsActive() as our loop condition because it is an interruptible method.
+        while (opModeIsActive()) {
+            // convert the RGB values to HSV values.
+            // multiply by the SCALE_FACTOR.
+            // then cast it back to int (SCALE_FACTOR is a double)
+            Color.RGBToHSV((int) (sensorColor.red() * SCALE_FACTOR),
+                    (int) (sensorColor.green() * SCALE_FACTOR),
+                    (int) (sensorColor.blue() * SCALE_FACTOR),
+                    hsvValues);
+
+            // send the info back to driver station using telemetry function.
+            telemetry.addData("Distance (cm)",
+                    String.format(Locale.US, "%.02f", sensorDistance.getDistance(DistanceUnit.CM)));
+            telemetry.addData("Alpha", sensorColor.alpha());
+            telemetry.addData("Red  ", sensorColor.red());
+            telemetry.addData("Green", sensorColor.green());
+            telemetry.addData("Blue ", sensorColor.blue());
+            telemetry.addData("Hue", hsvValues[0]);
+            if(hsvValues[0] < 90 || hsvValues[0] > 270)
+            {
+                telemetry.addData("Color","Red");
+            }
+            else
+            {
+                telemetry.addData("Color","Blue");
+            }
+            
+
+            // change the background color to match the color detected by the RGB sensor.
+            // pass a reference to the hue, saturation, and value array as an argument
+            // to the HSVToColor method.
+            relativeLayout.post(new Runnable() {
+                public void run() {
+                    relativeLayout.setBackgroundColor(Color.HSVToColor(0xff, values));
+                }
+            });
+
+            telemetry.update();
+        }
+
+        // Set the panel back to the default color
+        relativeLayout.post(new Runnable() {
+            public void run() {
+                relativeLayout.setBackgroundColor(Color.WHITE);
+            }
+        });
+    }
+}
+
+
+-Omni-
+
+/* Copyright (c) 2017 FIRST. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted (subject to the limitations in the disclaimer below) provided that
+ * the following conditions are met:
+ *
+ * Redistributions of source code must retain the above copyright notice, this list
+ * of conditions and the following disclaimer.
+ *
+ * Redistributions in binary form must reproduce the above copyright notice, this
+ * list of conditions and the following disclaimer in the documentation and/or
+ * other materials provided with the distribution.
+ *
+ * Neither the name of FIRST nor the names of its contributors may be used to endorse or
+ * promote products derived from this software without specific prior written permission.
+ *
+ * NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE GRANTED BY THIS
+ * LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.Disabled;
+import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.util.ElapsedTime;
+import com.qualcomm.robotcore.util.Range;
+
+/**
+ * This file contains an example of an iterative (Non-Linear) "OpMode".
+ * An OpMode is a 'program' that runs in either the autonomous or the teleop period of an FTC match.
+ * The names of OpModes appear on the menu of the FTC Driver Station.
+ * When an selection is made from the menu, the corresponding OpMode
+ * class is instantiated on the Robot Controller and executed.
+ *
+ * This particular OpMode just executes a basic Tank Drive Teleop for a two wheeled robot
+ * It includes all the skeletal structure that all iterative OpModes contain.
+ *
+ * Use Android Studios to Copy this Class, and Paste it into your team's code folder with a new name.
+ * Remove or comment out the @Disabled line to add this opmode to the Driver Station OpMode list
+ */
+
+@TeleOp(name="Demo_teleop_omni", group="Iterative Opmode")
+
+public class Demo_teleop_omni extends OpMode
+{
+    // Declare OpMode members.
+    private ElapsedTime runtime = new ElapsedTime();
+    private DcMotor FrontLeft = null;
+    private DcMotor FrontRight = null;
+    private DcMotor BackLeft = null;
+    private DcMotor BackRight = null;
+    
+    /*
+     * Code to run ONCE when the driver hits INIT
+     */
+    @Override
+    public void init() {
+        telemetry.addData("Status", "Initialized");
+
+        // Initialize the hardware variables. Note that the strings used here as parameters
+        // to 'get' must correspond to the names assigned during the robot configuration
+        // step (using the FTC Robot Controller app on the phone).
+        FrontLeft  = hardwareMap.get(DcMotor.class, "FL");
+        FrontRight = hardwareMap.get(DcMotor.class, "FR");
+        BackLeft   = hardwareMap.get(DcMotor.class, "BL");
+        BackRight  = hardwareMap.get(DcMotor.class, "BR");
+        
+        
+        // Tell the driver that initialization is complete.
+        telemetry.addData("Status", "Initialized");
+    }
+
+    /*
+     * Code to run REPEATEDLY after the driver hits INIT, but before they hit PLAY
+     */
+    @Override
+    public void init_loop() {
+    }
+
+    /*
+     * Code to run ONCE when the driver hits PLAY
+     */
+    @Override
+    public void start() {
+        runtime.reset();
+    }
+
+    /*
+     * Code to run REPEATEDLY after the driver hits PLAY but before they hit STOP
+     */
+    @Override
+    public void loop() {
+        
+        
+        
+        if (gamepad1.b){
+            FrontLeft.setPower(1.0);
+            FrontRight.setPower(1.0);
+            BackLeft.setPower(1.0);
+            BackRight.setPower(1.0);
+            return;
+            }
+        else if (gamepad1.x){
+            FrontLeft.setPower(-1.0);
+            FrontRight.setPower(-1.0);
+            BackLeft.setPower(-1.0);
+            BackRight.setPower(-1.0);
+            return;
+            }
+          
+        
+         FrontLeft.setPower(gamepad1.left_stick_x);
+         BackRight.setPower(-gamepad1.left_stick_x);
+         FrontRight.setPower(gamepad1.left_stick_y);
+         BackLeft.setPower(-gamepad1.left_stick_y);
+        
+    }    
+    @Override
+    public void stop() {
+    }
+}
+        
+
+
+-Demo Control (X-Drive)-
+
+package org.firstinspires.ftc.teamcode;
+
+
+import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.Gyroscope;
+import com.qualcomm.robotcore.hardware.DigitalChannel;
+import com.qualcomm.robotcore.hardware.DistanceSensor;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.CRServo;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.TouchSensor;
+import com.qualcomm.robotcore.util.Range;
+import com.qualcomm.robotcore.util.ElapsedTime;
+/**
+ * TeleOp Mode
+ * <p>
+ * Enables control of the robot via the gamepad
+ */
+ 
+ @TeleOp(name="DemoControl", group="Drive")
+public class DemoControl extends LinearOpMode {
+    
+    private ElapsedTime runtime = new ElapsedTime();
+    
+    DcMotor motorfrontRight;
+    DcMotor motorfrontLeft;
+    DcMotor motorbackLeft;
+    DcMotor motorbackRight;
+    DcMotor motorLift;
+    Servo leftPaddle;
+    Servo rightPaddle;
+    Servo servoColorSensor;
+    CRServo relicGrabberNear;
+    CRServo relicGrabberMid;
+    CRServo relicGrabberFar;
+    DcMotor relicGrabberArm;
+    Servo relicGripper;
+    double pwr = .3;
+    double t= .8;//turn throttle
+    boolean endMode = false;
+    //double grabberOut = .5;//1 for out, 0 for in
+   /* double sL = .5;
+    double sR = .5;*/
+
+
+    @Override
+    public void runOpMode() {
+        motorfrontLeft = hardwareMap.dcMotor.get("motor_fl");
+        motorfrontRight = hardwareMap.dcMotor.get("motor_fr");
+        motorbackLeft = hardwareMap.dcMotor.get("motor_bl");
+        motorbackRight = hardwareMap.dcMotor.get("motor_br");
+        leftPaddle = hardwareMap.servo.get("servo_l");
+        rightPaddle = hardwareMap.servo.get("servo_r");
+        motorLift = hardwareMap.dcMotor.get("motor_a");
+        servoColorSensor = hardwareMap.servo.get("servo_c");
+        relicGrabberNear = hardwareMap.crservo.get("servo_gn");
+        relicGrabberMid = hardwareMap.crservo.get("servo_gm");
+        relicGrabberFar = hardwareMap.crservo.get("servo_gf");
+        relicGrabberArm = hardwareMap.dcMotor.get("motor_ga");
+        relicGripper = hardwareMap.servo.get("servo_ga");
+        
+        motorfrontLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        motorfrontRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        motorbackLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        motorbackRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+
+        telemetry.addData("Status", "Initialized");
+        //telemetry.update();
+        // Wait for the game to start (driver presses PLAY)
+        waitForStart();
+        
+        //relicGrabberNear.setPower(.5);
+
+        // run until the end of the match (driver presses STOP)
+        while (opModeIsActive()) {
+            telemetry.addData("Status", "Running");
+            //telemetry.update();
+        double fleft = (-gamepad1.left_stick_y-gamepad1.left_stick_x+(t*gamepad1.right_stick_x));
+        double fright = (-gamepad1.left_stick_y+gamepad1.left_stick_x+(t*gamepad1.right_stick_x));
+        double bleft = (gamepad1.left_stick_y+gamepad1.left_stick_x+(t*gamepad1.right_stick_x));
+        double bright =(gamepad1.left_stick_y-gamepad1.left_stick_x+(t*gamepad1.right_stick_x));
+        float lift = -(gamepad2.right_stick_y);
+        double sR = ((gamepad2.left_stick_y)/2 + .5);
+        double sL = -((gamepad2.left_stick_y)/2 + .5)+1;
+
+        
+        
+        
+       
+        
+        
+        
+        
+        motorfrontLeft.setPower(pwr * fleft);
+        motorfrontRight.setPower(pwr * fright);
+        motorbackRight.setPower(pwr * bleft);
+        motorbackLeft.setPower(pwr * bright);
+        motorLift.setPower(lift); //Motor has 40 ratio, rather than 20... 
+        leftPaddle.setPosition(sL);
+        rightPaddle.setPosition(sR);
+        servoColorSensor.setPosition(1);
+        //relicGrabberNear.setPower(0);
+        //relicGrabberMid.setPower(0);
+        //relicGrabberFar.setPower(0);
+        
+        String fL = String.valueOf(motorfrontLeft.getCurrentPosition()/runtime.time());
+        String fR = String.valueOf(motorfrontRight.getCurrentPosition()/runtime.time()); 
+        String bL = String.valueOf(motorbackLeft.getCurrentPosition()/runtime.time()); 
+        String bR = String.valueOf(motorbackRight.getCurrentPosition()/runtime.time());
+        telemetry.addData("FL",fL);
+        telemetry.addData("FR",fR);
+        telemetry.addData("BL",bL);
+        telemetry.addData("BR",bR);
+        telemetry.addData("SL",sL);
+        telemetry.addData("SR",sR);
+        telemetry.update();
+        
+        if(gamepad1.a)
+        {
+            pwr=.2;
+            telemetry.addData("speed: ",pwr);
+            telemetry.update();
+        }
+    
+        if(gamepad1.b)
+        {
+            pwr=.3;
+            telemetry.addData("speed: ",pwr);
+            telemetry.update(); 
+        }
+        
+        if(gamepad1.y)
+        {
+            pwr=.4;
+            telemetry.addData("speed: ",pwr);
+            telemetry.update(); 
+        }
+        
+        if(gamepad1.x)
+        {
+            pwr=.5;
+            telemetry.addData("speed: ",pwr);
+            telemetry.update(); 
+        }
+        
+        if(gamepad2.a)
+        {
+            endMode = !endMode;
+        }
+        
+        
+        /*if(gamepad2.x)
+        {
+            if(grabberOut <1)
+            {
+                grabberOut = 1;
+            }
+            else
+            {
+                grabberOut = 0;
+            }
+        }*/
+        
+        //The first condition seems to override sometimes??
+        if(!gamepad2.dpad_up && !gamepad2.dpad_down)
+        {
+            relicGrabberNear.setPower(0);
+            relicGrabberMid.setPower(0);
+            relicGrabberFar.setPower(0);
+        }
+        else if (gamepad2.dpad_down)
+        {
+            relicGrabberNear.setPower(1);
+            relicGrabberMid.setPower(.75);
+            relicGrabberFar.setPower(-.5);
+        }
+        else
+        {
+            relicGrabberNear.setPower(-1);
+            relicGrabberMid.setPower(-.75);
+            relicGrabberFar.setPower(.5);
+        }
+        
+        if(!gamepad2.dpad_left && !gamepad2.dpad_right) relicGrabberArm.setPower(0);
+        else if (gamepad2.dpad_right) relicGrabberArm.setPower(0.4);
+        else relicGrabberArm.setPower(-0.4);
+        
+        if(gamepad2.x)
+        {
+            relicGripper.setPosition(0);
+        }
+        if(gamepad2.b)
+        {
+            relicGripper.setPosition(1);
+        }
+        
+         /*if(gamepad1.right_bumper)    
+            motorfrontLeft.setPower(fleft);
+            motorfrontRight.setPower(fright);
+            motorbackRight.setPower(bleft);
+            motorbackLeft.setPower(bright); 
+            */
+        /*
+        if(gamepad1.y) {        //Drives cardinal north
+            motorfrontLeft.setPower(pwr);
+            motorfrontRight.setPower(-pwr);
+            motorbackRight.setPower(-pwr);
+            motorbackLeft.setPower(pwr);
+            }
+        else if(gamepad1.a) {   //Drives cardinal south
+            motorfrontLeft.setPower(-pwr);
+            motorfrontRight.setPower(pwr);
+            motorbackRight.setPower(pwr);
+            motorbackLeft.setPower(-pwr);
+            }
+        else if(gamepad1.b) {   //Drives cardinal east
+            motorfrontLeft.setPower(pwr);
+            motorfrontRight.setPower(pwr);
+            motorbackRight.setPower(-pwr);
+            motorbackLeft.setPower(-pwr);
+            }
+        else if(gamepad1.x) {   //Drives cardinal west
+            motorfrontLeft.setPower(-pwr);
+            motorfrontRight.setPower(-pwr);
+            motorbackRight.setPower(pwr);
+            motorbackLeft.setPower(pwr);
+            }*/
+         
+        }
+        
+       
+    }
+}
+
+
+-Distance Test-
+/* Copyright (c) 2017 FIRST. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted (subject to the limitations in the disclaimer below) provided that
+ * the following conditions are met:
+ *
+ * Redistributions of source code must retain the above copyright notice, this list
+ * of conditions and the following disclaimer.
+ *
+ * Redistributions in binary form must reproduce the above copyright notice, this
+ * list of conditions and the following disclaimer in the documentation and/or
+ * other materials provided with the distribution.
+ *
+ * Neither the name of FIRST nor the names of its contributors may be used to endorse or
+ * promote products derived from this software without specific prior written permission.
+ *
+ * NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE GRANTED BY THIS
+ * LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+package org.firstinspires.ftc.teamcode;
+
+//import com.qualcomm.robotcore.eventloop.opmode.Disabled;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.OpticalDistanceSensor;
+
+/*
+ * This is an example LinearOpMode that shows how to use
+ * a Modern Robotics Optical Distance Sensor
+ * It assumes that the ODS sensor is configured with a name of "sensor_ods".
+ *
+ * Use Android Studio to Copy this Class, and Paste it into your team's code folder with a new name.
+ * Remove or comment out the @Disabled line to add this opmode to the Driver Station OpMode list
+ */
+@TeleOp(name = "Sensor: MR ODS", group = "Sensor")
+
+public class DistanceTester extends LinearOpMode {
+
+  OpticalDistanceSensor odsSensor;  // Hardware Device Object
+
+  @Override
+  public void runOpMode() {
+
+    // get a reference to our Light Sensor object.
+    odsSensor = hardwareMap.get(OpticalDistanceSensor.class, "sensor_ods");
+
+    // wait for the start button to be pressed.
+    waitForStart();
+
+    // while the op mode is active, loop and read the light levels.
+    // Note we use opModeIsActive() as our loop condition because it is an interruptible method.
+    while (opModeIsActive()) {
+
+      // send the info back to driver station using telemetry function.
+      telemetry.addData("Raw",    odsSensor.getRawLightDetected());
+      telemetry.addData("Normal", odsSensor.getLightDetected());
+
+      telemetry.update();
+    }
+  }
+}
+
+
+-Encoder Tester -
+
+/* Copyright (c) 2017 FIRST. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted (subject to the limitations in the disclaimer below) provided that
+ * the following conditions are met:
+ *
+ * Redistributions of source code must retain the above copyright notice, this list
+ * of conditions and the following disclaimer.
+ *
+ * Redistributions in binary form must reproduce the above copyright notice, this
+ * list of conditions and the following disclaimer in the documentation and/or
+ * other materials provided with the distribution.
+ *
+ * Neither the name of FIRST nor the names of its contributors may be used to endorse or
+ * promote products derived from this software without specific prior written permission.
+ *
+ * NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE GRANTED BY THIS
+ * LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+//import com.qualcomm.robotcore.eventloop.opmode.Disabled;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.util.ElapsedTime;
+
+/**
+ * This file illustrates the concept of driving a path based on encoder counts.
+ * It uses the common Pushbot hardware class to define the drive on the robot.
+ * The code is structured as a LinearOpMode
+ *
+ * The code REQUIRES that you DO have encoders on the wheels,
+ *   otherwise you would use: PushbotAutoDriveByTime;
+ *
+ *  This code ALSO requires that the drive Motors have been configured such that a positive
+ *  power command moves them forwards, and causes the encoders to count UP.
+ *
+ *   The desired path in this example is:
+ *   - Drive forward for 48 inches
+ *   - Spin right for 12 Inches
+ *   - Drive Backwards for 24 inches
+ *   - Stop and close the claw.
+ *
+ *  The code is written using a method called: encoderDrive(speed, leftInches, rightInches, timeoutS)
+ *  that performs the actual movement.
+ *  This methods assumes that each movement is relative to the last stopping place.
+ *  There are other ways to perform encoder based moves, but this method is probably the simplest.
+ *  This code uses the RUN_TO_POSITION mode to enable the Motor controllers to generate the run profile
+ *
+ * Use Android Studios to Copy this Class, and Paste it into your team's code folder with a new name.
+ * Remove or comment out the @Disabled line to add this opmode to the Driver Station OpMode list
+ */
+/*
+@Autonomous(name="Pushbot: Auto Drive By Encoder", group="Pushbot")
+
+public class EncoderTester extends LinearOpMode {
+
+    /* Declare OpMode members. */
+    /*
+    HardwarePushbot         robot   = new HardwarePushbot();   // Use a Pushbot's hardware
+    private ElapsedTime     runtime = new ElapsedTime();
+
+    static final double     COUNTS_PER_MOTOR_REV    = 1440 ;    // eg: TETRIX Motor Encoder
+    static final double     DRIVE_GEAR_REDUCTION    = 2.0 ;     // This is < 1.0 if geared UP
+    static final double     WHEEL_DIAMETER_INCHES   = 4.0 ;     // For figuring circumference
+    static final double     COUNTS_PER_INCH         = (COUNTS_PER_MOTOR_REV * DRIVE_GEAR_REDUCTION) /
+                                                      (WHEEL_DIAMETER_INCHES * 3.1415);
+    static final double     DRIVE_SPEED             = 0.6;
+    static final double     TURN_SPEED              = 0.5;
+
+    @Override
+    public void runOpMode() {
+
+        /*
+         * Initialize the drive system variables.
+         * The init() method of the hardware class does all the work here
+         */
+         /*
+        robot.init(hardwareMap);
+
+        // Send telemetry message to signify robot waiting;
+        telemetry.addData("Status", "Resetting Encoders");    //
+        telemetry.update();
+
+        robot.leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        robot.rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+
+        robot.leftDrive.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        robot.rightDrive.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+
+        // Send telemetry message to indicate successful Encoder reset
+        telemetry.addData("Path0",  "Starting at %7d :%7d",
+                          robot.leftDrive.getCurrentPosition(),
+                          robot.rightDrive.getCurrentPosition());
+        telemetry.update();
+
+        // Wait for the game to start (driver presses PLAY)
+        waitForStart();
+
+        // Step through each leg of the path,
+        // Note: Reverse movement is obtained by setting a negative distance (not speed)
+        encoderDrive(DRIVE_SPEED,  48,  48, 5.0);  // S1: Forward 47 Inches with 5 Sec timeout
+        encoderDrive(TURN_SPEED,   12, -12, 4.0);  // S2: Turn Right 12 Inches with 4 Sec timeout
+        encoderDrive(DRIVE_SPEED, -24, -24, 4.0);  // S3: Reverse 24 Inches with 4 Sec timeout
+
+        robot.leftClaw.setPosition(1.0);            // S4: Stop and close the claw.
+        robot.rightClaw.setPosition(0.0);
+        sleep(1000);     // pause for servos to move
+
+        telemetry.addData("Path", "Complete");
+        telemetry.update();
+    }
+
+    /*
+     *  Method to perfmorm a relative move, based on encoder counts.
+     *  Encoders are not reset as the move is based on the current position.
+     *  Move will stop if any of three conditions occur:
+     *  1) Move gets to the desired position
+     *  2) Move runs out of time
+     *  3) Driver stops the opmode running.
+     */
+     /*
+    public void encoderDrive(double speed,
+                             double leftInches, double rightInches,
+                             double timeoutS) {
+        int newLeftTarget;
+        int newRightTarget;
+
+        // Ensure that the opmode is still active
+        if (opModeIsActive()) {
+
+            // Determine new target position, and pass to motor controller
+            newLeftTarget = robot.leftDrive.getCurrentPosition() + (int)(leftInches * COUNTS_PER_INCH);
+            newRightTarget = robot.rightDrive.getCurrentPosition() + (int)(rightInches * COUNTS_PER_INCH);
+            robot.leftDrive.setTargetPosition(newLeftTarget);
+            robot.rightDrive.setTargetPosition(newRightTarget);
+
+            // Turn On RUN_TO_POSITION
+            robot.leftDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            robot.rightDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+            // reset the timeout time and start motion.
+            runtime.reset();
+            robot.leftDrive.setPower(Math.abs(speed));
+            robot.rightDrive.setPower(Math.abs(speed));
+
+            // keep looping while we are still active, and there is time left, and both motors are running.
+            // Note: We use (isBusy() && isBusy()) in the loop test, which means that when EITHER motor hits
+            // its target position, the motion will stop.  This is "safer" in the event that the robot will
+            // always end the motion as soon as possible.
+            // However, if you require that BOTH motors have finished their moves before the robot continues
+            // onto the next step, use (isBusy() || isBusy()) in the loop test.
+            while (opModeIsActive() &&
+                   (runtime.seconds() < timeoutS) &&
+                   (robot.leftDrive.isBusy() && robot.rightDrive.isBusy())) {
+
+                // Display it for the driver.
+                telemetry.addData("Path1",  "Running to %7d :%7d", newLeftTarget,  newRightTarget);
+                telemetry.addData("Path2",  "Running at %7d :%7d",
+                                            robot.leftDrive.getCurrentPosition(),
+                                            robot.rightDrive.getCurrentPosition());
+                telemetry.update();
+            }
+
+            // Stop all motion;
+            robot.leftDrive.setPower(0);
+            robot.rightDrive.setPower(0);
+
+            // Turn off RUN_TO_POSITION
+            robot.leftDrive.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            robot.rightDrive.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+
+            //  sleep(250);   // optional pause after each move
+        }
+    }
+}
+*/
+
+- Motor Test -
+/* Copyright (c) 2015 Qualcomm Technologies Inc
+
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted (subject to the limitations in the disclaimer below) provided that
+the following conditions are met:
+
+Redistributions of source code must retain the above copyright notice, this list
+of conditions and the following disclaimer.
+
+Redistributions in binary form must reproduce the above copyright notice, this
+list of conditions and the following disclaimer in the documentation and/or
+other materials provided with the distribution.
+
+Neither the name of Qualcomm Technologies Inc nor the names of its contributors
+may be used to endorse or promote products derived from this software without
+specific prior written permission.
+
+NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE GRANTED BY THIS
+LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
+
+package org.firstinspires.ftc.teamcode;
+
+import android.app.Activity;
+import com.qualcomm.robotcore.hardware.Servo;
+import android.graphics.Color;
+import android.view.View;
+
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.ColorSensor;
+import com.qualcomm.robotcore.hardware.DcMotor;
+
+/*
+ *
+ * This is an example LinearOpMode that shows how to use
+ * a Modern Robotics Color Sensor.
+ *
+ * The op mode assumes that the color sensor
+ * is configured with a name of "color sensor".
+ *
+ * You can use the X button on gamepad1 to toggle the LED on and off.
+ *
+ * Use Android Studio to Copy this Class, and Paste it into your team's code folder with a new name.
+ * Remove or comment out the @Disabled line to add this opmode to the Driver Station OpMode list
+ */
+@Autonomous(name = "MotorTester", group = "Drive")
+public class MotorTester extends LinearOpMode {
+
+    DcMotor motorfrontRight;
+    DcMotor motorfrontLeft;
+    DcMotor motorbackLeft;
+    DcMotor motorbackRight;
+    Servo leftPaddle;
+    Servo rightPaddle;
+    
+
+
+
+
+    @Override
+    public void runOpMode() throws InterruptedException {
+
+        motorfrontLeft = hardwareMap.dcMotor.get("motor_fl");
+        motorfrontRight = hardwareMap.dcMotor.get("motor_fr");
+        motorbackLeft = hardwareMap.dcMotor.get("motor_bl");
+        motorbackRight = hardwareMap.dcMotor.get("motor_br");
+        leftPaddle = hardwareMap.servo.get("servo_l");
+        rightPaddle = hardwareMap.servo.get("servo_r");
+
+
+
+        motorfrontLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        motorfrontRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        motorbackLeft.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        motorbackRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        
+
+
+/*        // hsvValues is an array that will hold the hue, saturation, and value information.
+        float hsvValues[] = {0F, 0F, 0F};
+
+        // values is a reference to the hsvValues array.
+        final float values[] = hsvValues;
+
+        // get a reference to the RelativeLayout so we can change the background
+        // color of the Robot Controller app to match the hue detected by the RGB sensor.
+        final View relativeLayout = ((Activity) hardwareMap.appContext).findViewById(R.id.RelativeLayout);
+
+        // bPrevState and bCurrState represent the previous and current state of the button.
+        boolean bPrevState = false;
+        boolean bCurrState = false;
+
+        // bLedOn represents the state of the LED.
+        boolean bLedOn = true;
+
+        // get a reference to our ColorSensor object.
+
+
+        // Set the LED in the beginning
+        colorSensor.enableLed(bLedOn);
+*/
+        // wait for the start button to be pressed.
+        waitForStart();
+
+        // while the op mode is active, loop and read the RGB data.
+        // Note we use opModeIsActive() as our loop condition because it is an interruptible method.
+        while (opModeIsActive()) {
+
+
+
+
+
+
+
+
+           /* motorfrontLeft.setPower(1);
+            motorfrontRight.setPower(-1);
+            motorbackRight.setPower(-1);
+            motorbackLeft.setPower(1);
+            Thread.sleep(1900);
+            motorfrontLeft.setPower(1);
+            motorfrontRight.setPower(1);
+            motorbackRight.setPower(1);
+            motorbackLeft.setPower(1);
+            Thread.sleep(825);
+            motorfrontLeft.setPower(-1);
+            motorfrontRight.setPower(1);
+            motorbackRight.setPower(1);
+            motorbackLeft.setPower(-1);
+            Thread.sleep(1900);*/
+
+
+
+            // SEE BOTTOM FOR PROPOSED CATAPULT CODE!!!!!!!
+
+          motorfrontLeft.setPower(1);
+          motorfrontRight.setPower(0);
+          motorbackRight.setPower(0);
+          motorbackLeft.setPower(0);
+          Thread.sleep(3000);
+          motorfrontLeft.setPower(0);
+          motorfrontRight.setPower(1);
+          motorbackRight.setPower(0);
+          motorbackLeft.setPower(0);
+          Thread.sleep(3000);
+          motorfrontLeft.setPower(0);
+          motorfrontRight.setPower(0);
+          motorbackRight.setPower(1);
+          motorbackLeft.setPower(0);
+          Thread.sleep(3000);
+          motorfrontLeft.setPower(0);
+          motorfrontRight.setPower(0);
+          motorbackRight.setPower(0);
+          motorbackLeft.setPower(1);
+          Thread.sleep(3000);
+
+
+
+            /*//Rotate
+            motorfrontLeft.setPower(1);
+            motorfrontRight.setPower(1);
+            motorbackRight.setPower(1);
+            motorbackLeft.setPower(1);
+            Thread.sleep(1000);
+
+            //Reverse
+            motorfrontLeft.setPower(-1);
+            motorfrontRight.setPower(1);
+            motorbackRight.setPower(1);
+            motorbackLeft.setPower(-1);
+            Thread.sleep(500);
+
+
+
+            //Release Particle
+            motorfrontLeft.setPower(0);
+            motorfrontRight.setPower(0);
+            motorbackRight.setPower(0);
+            motorbackLeft.setPower(0);
+            motorchooChoo.setPower(1);
+            Thread.sleep (600);*/
+
+
+
+            //End
+            motorfrontLeft.setPower(0);
+            motorfrontRight.setPower(0);
+            motorbackRight.setPower(0);
+            motorbackLeft.setPower(0);
+            Thread.sleep(30000);
+
+
+
+            idle(); // Always call idle() at the bottom of your while(opModeIsActive()) loop
+        }
+    }
+}
+
+
+- Vuforia Test-
+/*
+ * NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE GRANTED BY THIS
+ * LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.Disabled;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+
+import org.firstinspires.ftc.robotcore.external.ClassFactory;
+import org.firstinspires.ftc.robotcore.external.matrices.OpenGLMatrix;
+import org.firstinspires.ftc.robotcore.external.matrices.VectorF;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.AxesOrder;
+import org.firstinspires.ftc.robotcore.external.navigation.AxesReference;
+import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
+import org.firstinspires.ftc.robotcore.external.navigation.RelicRecoveryVuMark;
+import org.firstinspires.ftc.robotcore.external.navigation.VuMarkInstanceId;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaLocalizer;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackable;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackableDefaultListener;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackables;
+
+/**
+ * This OpMode illustrates the basics of using the Vuforia engine to determine
+ * the identity of Vuforia VuMarks encountered on the field. The code is structured as
+ * a LinearOpMode. It shares much structure with {@link ConceptVuforiaNavigation}; we do not here
+ * duplicate the core Vuforia documentation found there, but rather instead focus on the
+ * differences between the use of Vuforia for navigation vs VuMark identification.
+ *
+ * @see ConceptVuforiaNavigation
+ * @see VuforiaLocalizer
+ * @see VuforiaTrackableDefaultListener
+ * see  ftc_app/doc/tutorial/FTC_FieldCoordinateSystemDefinition.pdf
+ *
+ * Use Android Studio to Copy this Class, and Paste it into your team's code folder with a new name.
+ * Remove or comment out the @Disabled line to add this opmode to the Driver Station OpMode list.
+ *
+ * IMPORTANT: In order to use this OpMode, you need to obtain your own Vuforia license key as
+ * is explained in {@link ConceptVuforiaNavigation}.
+ */
+
+@Autonomous(name="Concept: VuMark Id", group ="Concept")
+
+public class VuforiaTest extends LinearOpMode {
+
+    public static final String TAG = "Vuforia VuMark Sample";
+
+    OpenGLMatrix lastLocation = null;
+
+    /**
+     * {@link #vuforia} is the variable we will use to store our instance of the Vuforia
+     * localization engine.
+     */
+    VuforiaLocalizer vuforia;
+
+    @Override public void runOpMode() {
+
+        /*
+         * To start up Vuforia, tell it the view that we wish to use for camera monitor (on the RC phone);
+         * If no camera monitor is desired, use the parameterless constructor instead (commented out below).
+         */
+        int cameraMonitorViewId = hardwareMap.appContext.getResources().getIdentifier("cameraMonitorViewId", "id", hardwareMap.appContext.getPackageName());
+        VuforiaLocalizer.Parameters parameters = new VuforiaLocalizer.Parameters(cameraMonitorViewId);
+
+        // OR...  Do Not Activate the Camera Monitor View, to save power
+        // VuforiaLocalizer.Parameters parameters = new VuforiaLocalizer.Parameters();
+
+        /*
+         * IMPORTANT: You need to obtain your own license key to use Vuforia. The string below with which
+         * 'parameters.vuforiaLicenseKey' is initialized is for illustration only, and will not function.
+         * A Vuforia 'Development' license key, can be obtained free of charge from the Vuforia developer
+         * web site at https://developer.vuforia.com/license-manager.
+         *
+         * Vuforia license keys are always 380 characters long, and look as if they contain mostly
+         * random data. As an example, here is a example of a fragment of a valid key:
+         *      ... yIgIzTqZ4mWjk9wd3cZO9T1axEqzuhxoGlfOOI2dRzKS4T0hQ8kT ...
+         * Once you've obtained a license key, copy the string from the Vuforia web site
+         * and paste it in to your code onthe next line, between the double quotes.
+         */
+        parameters.vuforiaLicenseKey = "AYmumr7/////AAAAGQ1uPJyxHEuKsdtKEoEYh3EcTg8yuw5Yo19dWdiDeT1573I36y48gRmf5tjl+VvKo5buvq+KZNlRAMKpDduiDSUDDimtzeI86rdHp0aPahXrMR9CoqiMwNJbff0fbXhPnSYqdWwAx0lg2fPNCdcgkoWaJe/BHMcjDgoWYPoBwCPZMLbD+Milz1ztlUL1pxvx+zxHnZChwe1ffDeXM7BJgo15Es03Q0ZNmUFLegwhyONUZjEXl4AtmOtTe79IyKxp3jGYpaEpIKuh5mhXYy3ach4+nZ3RhLj5eOFV0RnPtWnCbzswxwknzAS3yobuKIH5wSUzDuqizY/BMMXSkP0OU/Bqzo2H0YEtoY9U/Csqs7w6";
+
+        /*
+         * We also indicate which camera on the RC that we wish to use.
+         * Here we chose the back (HiRes) camera (for greater range), but
+         * for a competition robot, the front camera might be more convenient.
+         */
+        parameters.cameraDirection = VuforiaLocalizer.CameraDirection.BACK;
+        this.vuforia = ClassFactory.createVuforiaLocalizer(parameters);
+
+        /**
+         * Load the data set containing the VuMarks for Relic Recovery. There's only one trackable
+         * in this data set: all three of the VuMarks in the game were created from this one template,
+         * but differ in their instance id information.
+         * @see VuMarkInstanceId
+         */
+        VuforiaTrackables relicTrackables = this.vuforia.loadTrackablesFromAsset("RelicVuMark");
+        VuforiaTrackable relicTemplate = relicTrackables.get(0);
+        relicTemplate.setName("relicVuMarkTemplate"); // can help in debugging; otherwise not necessary
+
+        telemetry.addData(">", "Press Play to start");
+        telemetry.update();
+        waitForStart();
+
+        relicTrackables.activate();
+
+        while (opModeIsActive()) {
+
+            /**
+             * See if any of the instances of {@link relicTemplate} are currently visible.
+             * {@link RelicRecoveryVuMark} is an enum which can have the following values:
+             * UNKNOWN, LEFT, CENTER, and RIGHT. When a VuMark is visible, something other than
+             * UNKNOWN will be returned by {@link RelicRecoveryVuMark#from(VuforiaTrackable)}.
+             */
+            RelicRecoveryVuMark vuMark = RelicRecoveryVuMark.from(relicTemplate);
+            if (vuMark != RelicRecoveryVuMark.UNKNOWN) {
+
+                /* Found an instance of the template. In the actual game, you will probably
+                 * loop until this condition occurs, then move on to act accordingly depending
+                 * on which VuMark was visible. */
+                telemetry.addData("VuMark", "%s visible", vuMark);
+
+                /* For fun, we also exhibit the navigational pose. In the Relic Recovery game,
+                 * it is perhaps unlikely that you will actually need to act on this pose information, but
+                 * we illustrate it nevertheless, for completeness. */
+                OpenGLMatrix pose = ((VuforiaTrackableDefaultListener)relicTemplate.getListener()).getPose();
+                telemetry.addData("Pose", format(pose));
+
+                /* We further illustrate how to decompose the pose into useful rotational and
+                 * translational components */
+                if (pose != null) {
+                    VectorF trans = pose.getTranslation();
+                    Orientation rot = Orientation.getOrientation(pose, AxesReference.EXTRINSIC, AxesOrder.XYZ, AngleUnit.DEGREES);
+
+                    // Extract the X, Y, and Z components of the offset of the target relative to the robot
+                    double tX = trans.get(0);
+                    double tY = trans.get(1);
+                    double tZ = trans.get(2);
+
+                    // Extract the rotational components of the target relative to the robot
+                    double rX = rot.firstAngle;
+                    double rY = rot.secondAngle;
+                    double rZ = rot.thirdAngle;
+                }
+            }
+            else {
+                telemetry.addData("VuMark", "not visible");
+            }
+
+            telemetry.update();
+        }
+    }
+
+    String format(OpenGLMatrix transformationMatrix) {
+        return (transformationMatrix != null) ? transformationMatrix.formatAsTransform() : "null";
+    }
+}
